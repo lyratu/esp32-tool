@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web ESP Flasher Pro</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script type="module" src="https://unpkg.com/esptool-js@0.5.4/bundle.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        border: "hsl(240 5.9% 90%)",
+                        input: "hsl(240 5.9% 90%)",
+                        ring: "hsl(240 5.9% 10%)",
+                        background: "hsl(0 0% 100%)",
+                        foreground: "hsl(240 10% 3.9%)",
+                        primary: {
+                            DEFAULT: "hsl(240 5.9% 10%)",
+                            foreground: "hsl(0 0% 98%)",
+                        },
+                        secondary: {
+                            DEFAULT: "hsl(240 4.8% 95.9%)",
+                            foreground: "hsl(240 5.9% 10%)",
+                        },
+                        destructive: {
+                            DEFAULT: "hsl(0 84.2% 60.2%)",
+                            foreground: "hsl(0 0% 98%)",
+                        },
+                        muted: {
+                            DEFAULT: "hsl(240 4.8% 95.9%)",
+                            foreground: "hsl(240 3.8% 46.1%)",
+                        },
+                        accent: {
+                            DEFAULT: "hsl(240 4.8% 95.9%)",
+                            foreground: "hsl(240 5.9% 10%)",
+                        },
+                    },
+                    borderRadius: {
+                        lg: "0.5rem",
+                        md: "calc(0.5rem - 2px)",
+                        sm: "calc(0.5rem - 4px)",
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+
+        /* 呼吸灯动画 */
+        @keyframes pulse-led {
+            0%, 100% { opacity: 1; box-shadow: 0 0 10px currentColor; }
+            50% { opacity: 0.5; box-shadow: 0 0 2px currentColor; }
+        }
+        .animate-led { animation: pulse-led 1s infinite; }
+        
+        /* 芯片引脚样式 */
+        .pin { width: 8px; height: 12px; background: #fbbf24; border-radius: 1px; }
+    </style>
+</head>
+<body class="bg-white text-foreground min-h-screen flex flex-col">
+
+    <div id="app" class="flex-1 flex flex-col">
+        <header class="border-b border-border px-6 py-4 flex items-center justify-between bg-white/80 backdrop-blur sticky top-0 z-10">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 bg-primary text-primary-foreground rounded-md flex items-center justify-center font-bold">
+                    <i data-lucide="cpu" class="w-5 h-5"></i>
+                </div>
+                <h1 class="text-xl font-bold tracking-tight">ESP Web Flasher</h1>
+            </div>
+            <div class="flex items-center gap-4">
+                <span class="text-sm text-muted-foreground flex items-center gap-1">
+                    <span class="relative flex h-2 w-2 mr-1">
+                      <span v-if="isConnected" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                      <span :class="isConnected ? 'bg-green-500' : 'bg-red-500'" class="relative inline-flex rounded-full h-2 w-2"></span>
+                    </span>
+                    {{ connectionStatus }}
+                </span>
+            </div>
+        </header>
+
+        <main class="flex-1 container mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <div class="lg:col-span-4 space-y-6">
+                <div class="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                    <div class="p-6 space-y-4">
+                        <h3 class="text-lg font-semibold leading-none tracking-tight">设备连接</h3>
+                        <p class="text-sm text-muted-foreground">通过 USB 串口连接您的 ESP32/8266 设备。</p>
+                        
+                        <div class="grid gap-4">
+                            <div class="grid gap-2">
+                                <label class="text-sm font-medium">波特率 (Baud Rate)</label>
+                                <select v-model="baudRate" :disabled="isFlashing" class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                                    <option value="115200">115200 (Default)</option>
+                                    <option value="460800">460800 (Fast)</option>
+                                    <option value="921600">921600 (Super Fast)</option>
+                                </select>
+                            </div>
+
+                            <button @click="toggleConnection" :disabled="isFlashing" 
+                                :class="isConnected ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'"
+                                class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors h-10 px-4 py-2 text-primary-foreground w-full">
+                                <i :data-lucide="isConnected ? 'plug-zap' : 'usb'" class="mr-2 w-4 h-4"></i>
+                                {{ isConnected ? '断开连接' : '连接设备' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                    <div class="p-6 space-y-4">
+                        <h3 class="text-lg font-semibold leading-none tracking-tight">固件烧录</h3>
+                        
+                        <div class="grid gap-4">
+                            <div v-if="chipType" class="flex items-center p-3 bg-secondary rounded-md text-sm">
+                                <i data-lucide="microchip" class="mr-2 w-4 h-4 text-primary"></i>
+                                检测到芯片: <span class="font-bold ml-1">{{ chipType }}</span>
+                            </div>
+
+                            <div class="grid gap-2">
+                                <label class="text-sm font-medium">选择固件 (.bin)</label>
+                                <div class="flex items-center justify-center w-full">
+                                    <label for="dropzone-file" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-input rounded-lg cursor-pointer bg-background hover:bg-accent hover:text-accent-foreground transition-colors">
+                                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                            <i data-lucide="upload-cloud" class="w-8 h-8 mb-2 text-muted-foreground"></i>
+                                            <p class="text-sm text-muted-foreground" v-if="!firmwareFile">点击或拖拽上传</p>
+                                            <p class="text-sm text-primary font-medium" v-else>{{ firmwareFile.name }}</p>
+                                        </div>
+                                        <input id="dropzone-file" type="file" accept=".bin" class="hidden" @change="handleFileUpload" />
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="grid gap-2">
+                                <label class="text-sm font-medium">Flash Offset (地址)</label>
+                                <input type="text" v-model="flashOffset" class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="0x0000">
+                            </div>
+
+                            <div v-if="isFlashing" class="space-y-1">
+                                <div class="flex justify-between text-xs text-muted-foreground">
+                                    <span>Writing...</span>
+                                    <span>{{ progress }}%</span>
+                                </div>
+                                <div class="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                                    <div class="h-full bg-primary transition-all duration-300 ease-out" :style="{ width: progress + '%' }"></div>
+                                </div>
+                            </div>
+
+                            <button @click="program" :disabled="!canProgram" 
+                                class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors h-10 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 w-full disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i data-lucide="zap" class="mr-2 w-4 h-4" :class="{'animate-spin': isFlashing}"></i>
+                                {{ isFlashing ? '正在烧录...' : '开始烧录' }}
+                            </button>
+                            
+                            <button @click="resetDevice" :disabled="!isConnected || isFlashing"
+                                class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors h-10 px-4 py-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground w-full">
+                                <i data-lucide="rotate-ccw" class="mr-2 w-4 h-4"></i>
+                                重启设备
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-8 flex flex-col gap-6">
+                
+                <div class="rounded-lg border border-border bg-card shadow-sm p-6 flex flex-col items-center justify-center bg-slate-50 relative overflow-hidden min-h-[300px]">
+                    <div class="absolute top-4 left-4 text-xs font-mono text-muted-foreground">DEVICE SIMULATOR</div>
+                    
+                    <div class="relative w-64 h-80 bg-slate-900 rounded-xl shadow-2xl border-4 border-slate-800 flex flex-col items-center p-4 transition-transform duration-500" :class="{'scale-[1.02]': isFlashing}">
+                        <div class="absolute -bottom-3 w-16 h-6 bg-slate-400 rounded-sm border border-slate-600"></div>
+                        
+                        <div class="w-full h-12 border-t-2 border-r-2 border-l-2 border-amber-500/30 rounded-t-xl mb-4 relative overflow-hidden">
+                            <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDUiLz4KPC9zdmc+')]"></div>
+                        </div>
+
+                        <div class="w-24 h-24 bg-slate-800 border border-slate-600 rounded flex items-center justify-center mb-8 relative">
+                            <span class="text-[10px] text-slate-400 font-mono text-center">
+                                ESPRESSIF<br>
+                                <span class="text-white font-bold">{{ chipType || 'ESP32' }}</span>
+                            </span>
+                            <div class="absolute bottom-1 right-1 w-1.5 h-1.5 rounded-full transition-all duration-300"
+                                :class="ledColor">
+                            </div>
+                        </div>
+
+                        <div class="absolute left-0 top-20 flex flex-col gap-2 -ml-2">
+                            <div v-for="i in 10" class="pin"></div>
+                        </div>
+                        <div class="absolute right-0 top-20 flex flex-col gap-2 -mr-2">
+                            <div v-for="i in 10" class="pin"></div>
+                        </div>
+
+                        <div class="absolute bottom-12 flex gap-4">
+                            <div class="flex flex-col items-center gap-1">
+                                <div class="w-3 h-3 rounded-full bg-red-500 shadow transition-all" :class="isConnected ? 'bg-red-500 shadow-red-500/50' : 'bg-red-900'"></div>
+                                <span class="text-[8px] text-slate-500">PWR</span>
+                            </div>
+                            <div class="flex flex-col items-center gap-1">
+                                <div class="w-3 h-3 rounded-full transition-all duration-100" 
+                                     :class="[ledColor, isFlashing ? 'animate-led' : '']"></div>
+                                <span class="text-[8px] text-slate-500">RX/TX</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-8 text-sm text-center text-muted-foreground animate-pulse" v-if="isFlashing">
+                        正在向 Flash 写入数据... 请勿断开连接
+                    </div>
+                </div>
+
+                <div class="flex-1 rounded-lg border border-border bg-slate-950 text-slate-50 font-mono text-xs shadow-sm flex flex-col overflow-hidden h-64 lg:h-auto">
+                    <div class="px-4 py-2 border-b border-slate-800 bg-slate-900 flex justify-between items-center">
+                        <span class="font-medium">Serial Monitor</span>
+                        <button @click="clearLogs" class="text-slate-400 hover:text-white"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                    </div>
+                    <div class="flex-1 p-4 overflow-y-auto whitespace-pre-wrap" ref="terminal">
+                        <div v-for="(log, index) in logs" :key="index" :class="log.type === 'error' ? 'text-red-400' : 'text-slate-300'">
+                            <span class="opacity-50 select-none mr-2">[{{ log.time }}]</span>{{ log.msg }}
+                        </div>
+                        <div v-if="logs.length === 0" class="text-slate-600 italic">等待连接...</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+   <script type="module">
+    import { ESPLoader, Transport } from 'https://unpkg.com/esptool-js@0.2.2/bundle.js';
+
+    const { createApp, ref, computed, watch, nextTick, onMounted } = Vue;
+
+    createApp({
+        setup() {
+            const isConnected = ref(false);
+            const isFlashing = ref(false);
+            const progress = ref(0);
+            const logs = ref([]);
+            const chipType = ref('');
+            const baudRate = ref('115200');
+            const firmwareFile = ref(null);
+            const flashOffset = ref('0x0000');
+            const terminal = ref(null);
+
+            let port = null;
+            let transport = null;
+            let esploader = null;
+
+            // 简单的终端代理
+            const espLoaderTerminal = {
+                clean: () => {},
+                writeLine: (data) => addLog(data, 'system'),
+                write: (data) => addLog(data, 'system')
+            };
+
+            const connectionStatus = computed(() => {
+                if (isFlashing.value) return '正在烧录';
+                if (isConnected.value) return '已连接';
+                return '未连接';
+            });
+
+            const canProgram = computed(() => isConnected.value && firmwareFile.value && !isFlashing.value);
+            
+            const ledColor = computed(() => {
+                if (isFlashing.value) return 'bg-blue-500 shadow-[0_0_10px_#3b82f6]';
+                if (isConnected.value) return 'bg-green-500 shadow-[0_0_5px_#22c55e]';
+                return 'bg-slate-700';
+            });
+
+            const addLog = (msg, type = 'info') => {
+                if (!msg || msg.trim() === '' || msg === '.' || msg === '\r') return;
+                const time = new Date().toLocaleTimeString();
+                
+                let formattedType = type;
+                const lowerMsg = msg.toLowerCase();
+                if (lowerMsg.includes('error') || lowerMsg.includes('fail') || lowerMsg.includes('err')) {
+                    formattedType = 'error';
+                } else if (lowerMsg.includes('success')) {
+                    formattedType = 'success';
+                }
+                
+                logs.value.push({ time, msg: msg.trim(), type: formattedType });
+                nextTick(() => {
+                    if(terminal.value) terminal.value.scrollTop = terminal.value.scrollHeight;
+                });
+            };
+
+            const clearLogs = () => logs.value = [];
+
+            const handleFileUpload = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    firmwareFile.value = file;
+                    addLog(`已加载固件: ${file.name}`);
+                }
+            };
+
+            const toggleConnection = async () => {
+                if (isConnected.value) {
+                    await disconnect();
+                } else {
+                    await connect();
+                }
+            };
+
+            // === [核心修复] 深度清理端口状态 ===
+            // 解决 "Failed to open serial port" 的关键函数
+            const cleanUpPort = async () => {
+                // 1. 先尝试断开 esptool 的 transport 层
+                if (transport) {
+                    try {
+                        await transport.disconnect();
+                    } catch (e) {
+                        console.warn('Transport disconnect warning:', e);
+                    }
+                    transport = null;
+                }
+                
+                esploader = null;
+
+                // 2. 只有当 port 存在时才进行底层流清理
+                if (!port) return;
+
+                // [关键] 强制释放 Readable 锁
+                // 如果不释放，浏览器会认为端口正在使用，导致再次 open 失败
+                if (port.readable && port.readable.locked) {
+                    try {
+                        const reader = port.readable.getReader();
+                        await reader.cancel();
+                        reader.releaseLock();
+                    } catch (e) {
+                        console.warn('清理 Reader 锁失败 (可能已被占用):', e);
+                    }
+                }
+
+                // [关键] 强制释放 Writable 锁
+                if (port.writable && port.writable.locked) {
+                    try {
+                        const writer = port.writable.getWriter();
+                        await writer.abort();
+                        writer.releaseLock();
+                    } catch (e) {
+                        console.warn('清理 Writer 锁失败:', e);
+                    }
+                }
+
+                // 3. 最后尝试关闭端口
+                try {
+                    await port.close();
+                } catch (e) {
+                    // 忽略 "The port is already closed" 这类错误
+                }
+            };
+
+            const connect = async () => {
+                try {
+                    if (!navigator.serial) throw new Error('您的浏览器不支持 Web Serial API，请使用 Chrome 或 Edge。');
+
+                    // 1. 连接前彻底清理旧资源
+                    await cleanUpPort();
+
+                    // 2. 获取端口
+                    if (!port) {
+                        try {
+                            port = await navigator.serial.requestPort();
+                        } catch (e) {
+                            // 用户取消选择
+                            return; 
+                        }
+                    }
+
+                    // 3. 打开串口 (包含重试和容错逻辑)
+                    let isOpened = false;
+                    try {
+                        await port.open({ baudRate: parseInt(baudRate.value) });
+                        isOpened = true;
+                        addLog('串口打开成功', 'success');
+                    } catch (e) {
+                        const msg = e.message || '';
+                        if (msg.includes('already open')) {
+                            addLog('端口已在之前的会话中打开，复用中...', 'warning');
+                            isOpened = true;
+                        } else {
+                            //如果是 "Failed to open serial port"，通常意味着底层句柄坏了
+                            //这里必须把 port 置空，强迫用户下次重新 requestPort
+                            console.error('打开串口严重错误:', e);
+                            port = null; 
+                            throw new Error('无法打开串口。请拔掉设备USB线，重新插入后再试。');
+                        }
+                    }
+
+                    // 4. 初始化 esptool
+                    if (isOpened) {
+                        transport = new Transport(port);
+                        esploader = new ESPLoader(transport, parseInt(baudRate.value), espLoaderTerminal);
+
+                        addLog('正在连接芯片 (Sync)...');
+                        addLog('⚠️ 提示: 如果卡在 Connecting... 请按住板上的 BOOT 键，按一下 RST 键，然后松开 BOOT', 'warning');
+
+                        chipType.value = await esploader.main_fn();
+                        
+                        isConnected.value = true;
+                        addLog(`连接成功！检测到芯片: ${chipType.value}`, 'success');
+                    }
+
+                } catch (e) {
+                    console.error(e);
+                    addLog(`连接失败: ${e.message}`, 'error');
+                    isConnected.value = false;
+                    // 如果是严重错误，清理一切
+                    await cleanUpPort(); 
+                }
+            };
+
+            const disconnect = async () => {
+                await cleanUpPort();
+                port = null; // 显式断开连接时，清空 port 对象，下次需要重新选择
+                isConnected.value = false;
+                chipType.value = '';
+                addLog('设备已断开连接');
+            };
+
+            const program = async () => {
+                if (!firmwareFile.value) return;
+                isFlashing.value = true;
+                progress.value = 0;
+                
+                try {
+                    const fileData = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result);
+                        reader.onerror = (e) => reject(e);
+                        reader.readAsArrayBuffer(firmwareFile.value);
+                    });
+
+                    const fileArray = [{ data: fileData, address: parseInt(flashOffset.value) }];
+
+                    addLog('开始烧录...', 'info');
+                    
+                    await esploader.write_flash(
+                        fileArray,
+                        'keep', 'keep', 'keep', false, true,
+                        (fileIndex, written, total) => {
+                            progress.value = Math.round((written / total) * 100);
+                        },
+                        null
+                    );
+
+                    addLog('烧录完成！100%', 'success');
+                    await resetDevice();
+                    
+                } catch (e) {
+                    addLog(`烧录失败: ${e.message}`, 'error');
+                } finally {
+                    isFlashing.value = false;
+                }
+            };
+
+            const resetDevice = async () => {
+                if (!transport) return;
+                addLog('正在重启设备...');
+                await transport.setDTR(false);
+                await transport.setRTS(true);
+                await new Promise(r => setTimeout(r, 100));
+                await transport.setRTS(false);
+            };
+
+            onMounted(() => {
+                if(window.lucide) lucide.createIcons();
+                addLog('系统就绪，请点击 "选择设备" 开始');
+            });
+
+            watch([isConnected, isFlashing, firmwareFile], () => {
+                nextTick(() => { if(window.lucide) lucide.createIcons(); });
+            });
+
+            return {
+                isConnected, isFlashing, progress, logs, chipType,
+                baudRate, firmwareFile, flashOffset, terminal,
+                connectionStatus, canProgram, ledColor,
+                handleFileUpload, toggleConnection, program, resetDevice, clearLogs
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
